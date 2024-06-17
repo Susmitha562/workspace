@@ -18,14 +18,13 @@ import org.springframework.batch.item.file.transform.DelimitedLineTokenizer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.transaction.PlatformTransactionManager;
 
 @Configuration
-@EnableBatchProcessing
-@AllArgsConstructor
 public class BatchConfig {
 
     @Autowired
@@ -34,34 +33,29 @@ public class BatchConfig {
 
     @Bean
     public FlatFileItemReader<Employee> reader() {
-        FlatFileItemReader<Employee> itemReader = new FlatFileItemReader<>();
-        itemReader.setResource(new FileSystemResource("src/main/resources/emp.csv"));
-        itemReader.setName("csvReader");
-        itemReader.setLinesToSkip(1);
-        itemReader.setLineMapper(lineMapper());
-        return itemReader;
-    }
-
-    private LineMapper<Employee> lineMapper() {
+        FlatFileItemReader<Employee> flatFileItemReader = new FlatFileItemReader<>();
+        DelimitedLineTokenizer lineTokenizer = new DelimitedLineTokenizer();
         DefaultLineMapper<Employee> lineMapper = new DefaultLineMapper<>();
 
-        DelimitedLineTokenizer lineTokenizer = new DelimitedLineTokenizer();
+        // Line properties
+        String[] tokens = {"id", "name"};
         lineTokenizer.setDelimiter(",");
         lineTokenizer.setStrict(false);
-        lineTokenizer.setNames("id", "firstName", "lastName", "email", "gender", "contactNo", "country", "dob");
+        lineTokenizer.setNames(tokens);
 
-        BeanWrapperFieldSetMapper<Employee> fieldSetMapper = new BeanWrapperFieldSetMapper<>();
-        fieldSetMapper.setTargetType(Employee.class);
+        // Parsing
+        BeanWrapperFieldSetMapper<Employee> mapper = new BeanWrapperFieldSetMapper<>();
+        mapper.setTargetType(Employee.class);
 
         lineMapper.setLineTokenizer(lineTokenizer);
-        lineMapper.setFieldSetMapper(fieldSetMapper);
-        return lineMapper;
+        lineMapper.setFieldSetMapper(mapper);
 
-    }
+        flatFileItemReader.setName("employeeReader");
+        flatFileItemReader.setResource(new ClassPathResource("MOCK_DATA.csv"));
+        flatFileItemReader.setLinesToSkip(1);
+        flatFileItemReader.setLineMapper(lineMapper);
 
-    @Bean
-    public EmployeeProcessor processor() {
-        return new EmployeeProcessor();
+        return flatFileItemReader;
     }
 
     @Bean
@@ -70,6 +64,12 @@ public class BatchConfig {
         writer.setRepository(employeeRepository);
         writer.setMethodName("save");
         return writer;
+    }
+
+    @Bean
+    public Job runJob(JobRepository jobRepository, PlatformTransactionManager transactionManager) {
+        return new JobBuilder("importEmployee", jobRepository)
+                .flow(step1(jobRepository,transactionManager)).end().build();
     }
 
     @Bean
@@ -84,16 +84,15 @@ public class BatchConfig {
     }
 
     @Bean
-    public Job runJob(JobRepository jobRepository, PlatformTransactionManager transactionManager) {
-        return new JobBuilder("importStudent", jobRepository)
-                .flow(step1(jobRepository,transactionManager)).end().build();
-    }
-
-    @Bean
     public TaskExecutor taskExecutor() {
         SimpleAsyncTaskExecutor asyncTaskExecutor = new SimpleAsyncTaskExecutor();
         asyncTaskExecutor.setConcurrencyLimit(10);
         return asyncTaskExecutor;
+    }
+
+    @Bean
+    public EmployeeProcessor processor() {
+        return new EmployeeProcessor();
     }
 
 }
